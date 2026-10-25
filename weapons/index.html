@@ -1,0 +1,777 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>武器ビューア / Weapon Viewer</title>
+<style>
+  /* =========================================================
+     ★ よく変える設定はここ ★
+     --columns      : 一覧の列の数
+     --card-width   : 一覧のカードの横幅（高さは自動）
+     --preview-width: 右側に出す拡大表示の横幅
+     ========================================================= */
+  :root {
+    --columns: 3;
+    --card-width: 220px;
+    --preview-width: 660px;
+    --accent: #e6c35c;
+  }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: #1b1d1f;
+    color: #ddd;
+    font-family: "Segoe UI", "Yu Gothic UI", sans-serif;
+    padding: 32px 24px 90px;   /* 下はサイズバーの分だけ空ける */
+    box-sizing: border-box;
+  }
+  .sub { color: #777; font-size: .85em; font-weight: normal; }
+
+  .layout { display: flex; align-items: flex-start; justify-content: center; gap: 24px; }
+
+  h1 { font-size: 16px; font-weight: 600; letter-spacing: .05em; margin: 0 0 14px; color: #bbb; }
+
+  /* 表示の切り替え（種類別／弾丸別） */
+  .modes { display: flex; gap: 6px; margin-bottom: 10px; }
+  .modes button, .chips button {
+    font: inherit; color: #bbb; background: #2a2d30; border: 1px solid #444;
+    border-radius: 999px; padding: 5px 14px; cursor: pointer; font-size: 13px;
+  }
+  .modes button.on { color: #111; background: var(--accent); border-color: var(--accent); font-weight: 600; }
+
+  /* 絞り込みボタン */
+  .chips {
+    display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px;
+    max-width: calc((var(--card-width) + 10px) * var(--columns));
+  }
+  .chips button { font-size: 12px; padding: 4px 11px; }
+  .chips button.on { color: var(--accent); border-color: var(--accent); }
+  .chips .n { color: #777; margin-left: 4px; }
+
+  /* 並べ替え */
+  .sortbox { margin-bottom: 14px; font-size: 13px; color: #bbb; max-width: calc((var(--card-width) + 10px) * var(--columns)); }
+  .sorthead { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }
+  .sortrow { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; }
+  .sortrow .pri { width: 64px; color: #888; font-size: 12px; }
+  .sortrow.off .pri { color: #555; }
+  .sortbox select, .sortbox button {
+    font: inherit; font-size: 12.5px; color: #ddd; background: #2a2d30; border: 1px solid #444;
+    border-radius: 6px; padding: 4px 8px; cursor: pointer;
+  }
+  .sortbox select { flex: 1; }
+  .sortbox select:disabled, .sortbox button:disabled { opacity: .4; cursor: default; }
+  .sortbox select:focus { outline: 1px solid var(--accent); }
+  .sortbox label { display: flex; align-items: center; gap: 5px; cursor: pointer; font-size: 12.5px; }
+  .cell { position: relative; }
+  .cell .val {
+    position: absolute; top: 4px; right: 4px; padding: 1px 7px; border-radius: 999px; pointer-events: none;
+    background: rgba(0,0,0,.75); border: 1px solid var(--accent); color: var(--accent);
+    font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums;
+  }
+  .cell .val small { color: #aaa; font-weight: normal; font-size: 11px; }
+  .cell .val small::before { content: ' / '; color: #666; }
+  .cell .rank {
+    position: absolute; bottom: 4px; left: 4px; padding: 0 6px; border-radius: 4px; pointer-events: none;
+    background: rgba(0,0,0,.75); color: #aaa; font-size: 11px;
+  }
+  .group-title {
+    margin: 18px 0 8px; font-size: 13px; color: var(--accent);
+    border-bottom: 1px solid #333; padding-bottom: 4px;
+  }
+  .group-title:first-child { margin-top: 0; }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(var(--columns), var(--card-width));
+    gap: 10px;
+  }
+  .grid img {
+    display: block;
+    width: var(--card-width);
+    border: 1px solid transparent;
+    border-radius: 3px;
+    cursor: pointer;
+    transition: border-color .15s, transform .15s;
+  }
+  .grid img:hover { border-color: var(--accent); transform: translateY(-2px); }
+  /* クリックで固定中のカード */
+  .grid img.pinned { border: 2px solid var(--accent); box-shadow: 0 0 0 3px rgba(230,195,92,.25); }
+  .pin-badge {
+    display: none; margin-left: 8px; padding: 1px 10px; border-radius: 999px; font-size: 12px;
+    background: var(--accent); color: #111; font-weight: 600; vertical-align: middle;
+  }
+  .preview.pinned .pin-badge { display: inline-block; }
+  .hint { margin-top: 6px; color: #666; font-size: 12px; }
+
+  /* 右側の表示エリア（スクロールしても画面上部に付いてくる） */
+  .preview {
+    position: sticky;
+    top: 20px;
+    width: var(--preview-width);
+    max-width: calc(100vw - (var(--card-width) + 10px) * var(--columns) - 80px);
+    max-height: calc(100vh - 40px);   /* 画面より長いときは右側だけスクロール */
+    overflow-y: auto;
+    padding: 0 6px 80px 0;            /* 下はサイズバーに隠れない分 */
+    box-sizing: border-box;
+    scrollbar-width: thin;
+  }
+  .preview .empty {
+    border: 1px dashed #444; border-radius: 6px; aspect-ratio: 443 / 143;
+    display: flex; align-items: center; justify-content: center; text-align: center;
+    color: #666; font-size: 14px; line-height: 1.8;
+  }
+  .preview .detail { display: none; }
+  .preview.show .empty { display: none; }
+  .preview.show .detail { display: block; }
+  .preview .detail > img { width: 100%; border-radius: 6px; box-shadow: 0 10px 40px rgba(0,0,0,.6); }
+  .info { margin-top: 14px; font-size: 14px; line-height: 1.9; }
+  .info b { color: #fff; font-size: 18px; }
+  .info .tag {
+    display: inline-block; margin-right: 6px; padding: 1px 10px; border-radius: 999px;
+    border: 1px solid #555; font-size: 12px; color: #ccc;
+  }
+  .info .cal { border-color: var(--accent); color: var(--accent); }
+  .same { margin-top: 14px; color: #999; font-size: 13px; }
+  .same span { color: #ddd; }
+  /* 同じ弾を使う銃の写真 */
+  .same-grid {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 8px;
+  }
+  .same-grid img {
+    width: 100%; display: block; border: 1px solid transparent; border-radius: 3px; cursor: pointer;
+    transition: border-color .15s;
+  }
+  .same-grid img:hover { border-color: var(--accent); }
+  /* ステータス表 */
+  .stats { margin-top: 14px; display: grid; grid-template-columns: 1fr 1fr; gap: 6px 22px; }
+  .stat { font-size: 12.5px; }
+  .stat .row { display: flex; justify-content: space-between; color: #bbb; }
+  .stat .row b { color: #fff; font-size: 13px; font-weight: 600; }
+  .stat .bar { position: relative; height: 4px; margin-top: 3px; background: #2e3236; border-radius: 2px; }
+  .stat .bar i { position: absolute; left: 0; top: 0; bottom: 0; background: #c9ccd0; border-radius: 2px; }
+  .stat .bar u { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--accent); }
+  .kv { margin-top: 12px; display: grid; grid-template-columns: auto 1fr; gap: 3px 16px; font-size: 13px; }
+  .kv dt { color: #999; } .kv dd { margin: 0; color: #eee; }
+  .legend { margin-top: 6px; color: #777; font-size: 11.5px; }
+  .legend u { display: inline-block; width: 2px; height: 10px; background: var(--accent); vertical-align: middle; margin: 0 4px; }
+  /* 弾薬コスト表 */
+  .cost h3 { margin: 18px 0 4px; font-size: 13px; color: var(--accent); font-weight: 600; }
+  .cost .note { color: #777; font-size: 11.5px; margin-bottom: 6px; line-height: 1.6; }
+  .cost .note input { width: 52px; font: inherit; color: #eee; background: #2a2d30; border: 1px solid #555; border-radius: 4px; padding: 1px 4px; }
+  .cost .wrap { overflow-x: auto; }
+  .cost table { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+  .cost th, .cost td { padding: 4px 6px; text-align: right; white-space: nowrap; border-bottom: 1px solid #2e3236; }
+  .cost th { color: #999; font-weight: normal; font-size: 11px; }
+  .cost th .r { display: block; color: #666; font-size: 10.5px; }
+  .cost td:first-child, .cost th:first-child { text-align: left; }
+  .cost td.mag, .cost th.mag { background: rgba(230,195,92,.07); color: #f1d98a; }
+  .cost tr:hover td { background: #24272a; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+  .dot.灰 { background: #8a8d90; } .dot.紫 { background: #8e5cc9; } .dot.橙 { background: #d48a2c; }
+  .lv { color: #888; font-size: 11px; margin-left: 4px; }
+
+  /* 表示サイズのバー：画面の中央下に固定 */
+  .size-control {
+    position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 20;
+    padding: 10px 18px; background: rgba(20,22,24,.92); border: 1px solid #444; border-radius: 999px;
+    font-size: 13px; color: #bbb; display: flex; align-items: center; gap: 12px; white-space: nowrap;
+  }
+  .size-control input { width: 260px; }
+  #sizeValue { display: inline-block; min-width: 4.5em; text-align: right; }
+
+  /* ---------- ページ切り替え（スコープ ⇄ 武器） ---------- */
+  .site-nav {
+    display: flex; justify-content: center; gap: 6px; margin: -16px 0 22px;
+  }
+  .site-nav a {
+    color: #bbb; text-decoration: none; font-size: 14px; padding: 7px 18px;
+    border: 1px solid #444; border-radius: 999px; background: #2a2d30;
+  }
+  .site-nav a:hover { border-color: #e6c35c; color: #fff; }
+  .site-nav a.on { background: #e6c35c; border-color: #e6c35c; color: #111; font-weight: 600; }
+  .site-nav a .sub, .site-nav a.on .sub { color: inherit; opacity: .7; font-size: .85em; }
+</style>
+</head>
+<body>
+<!-- ページ切り替え：リンク先はフォルダ名（scopes / weapons）-->
+<nav class="site-nav"><a href="../index.html" class="">トップ <span class="sub">/ Top</span></a><a href="../scopes/index.html" class="">スコープ <span class="sub">/ Scopes</span></a><a href="../weapons/index.html" class="on">武器 <span class="sub">/ Weapons</span></a></nav>
+<div class="layout">
+
+  <div>
+    <h1>武器一覧 <span class="sub">/ Weapon List</span></h1>
+    <div class="modes">
+      <button data-mode="type" class="on">種類別 <span class="sub">/ By type</span></button>
+      <button data-mode="cal">弾丸別 <span class="sub">/ By caliber</span></button>
+    </div>
+    <div class="chips" id="chips"></div>
+    <div class="sortbox">
+      <div class="sorthead">並べ替え <span class="sub">/ Sort by</span>
+        <label><input type="checkbox" id="groupChk" checked> グループ分け <span class="sub">/ Group</span></label>
+        <button id="sortReset">リセット <span class="sub">/ Reset</span></button></div>
+      <div id="sortRows"></div>
+    </div>
+    <div id="list"></div>
+  </div>
+
+  <!-- 右側の表示エリア -->
+  <div class="preview" id="preview">
+    <div class="empty"><div>カードにカーソルを合わせると、ここに表示<br><span class="sub">Hover over a weapon to preview it here</span></div></div>
+    <div class="detail">
+      <img id="pvImg" alt="">
+      <div class="info" id="pvInfo"></div>
+    </div>
+  </div>
+
+</div>
+
+<!-- 表示サイズのバー（画面の中央下に固定） -->
+<label class="size-control">
+  表示サイズ <span class="sub">/ Image size</span>
+  <input type="range" id="sizeSlider" min="300" max="1320" step="10">
+  <span id="sizeValue"></span>
+</label>
+
+<script>
+  /* =========================================================
+     武器データ： [種類コード, 画像ファイル名, 銃名, 弾丸]
+     銃を増やすときは、この一覧に1行足して images に画像を入れるだけ
+     ========================================================= */
+  const WEAPONS = [
+    ["AR", "AR_01_AKM.png", "AKM", "7.62×39"],
+    ["AR", "AR_02_M4A1.png", "M4A1", "5.56×45"],
+    ["AR", "AR_03_FAL.png", "FAL", "7.62×51"],
+    ["AR", "AR_04_H416.png", "H416", "5.56×45"],
+    ["AR", "AR_05_MDR.png", "MDR", "5.56×45"],
+    ["AR", "AR_06_AK-102.png", "AK-102", "5.56×45"],
+    ["AR", "AR_07_AK-74N.png", "AK-74N", "5.45×39"],
+    ["AR", "AR_08_AKS-74U.png", "AKS-74U", "5.45×39"],
+    ["AR", "AR_09_AUG.png", "AUG", "5.56×45"],
+    ["AR", "AR_10_F2000.png", "F2000", "5.56×45"],
+    ["AR", "AR_11_AR-57.png", "AR-57", "5.7×28"],
+    ["AR", "AR_12_ACE31.png", "ACE31", "7.62×39"],
+    ["AR", "AR_13_AEK.png", "AEK", "7.62×39"],
+    ["AR", "AR_14_AN-94.png", "AN-94", "5.45×39"],
+    ["AR", "AR_15_FAMAS.png", "FAMAS", "5.56×45"],
+    ["AR", "AR_16_SCAR-L.png", "SCAR-L", "5.56×45"],
+    ["AR", "AR_17_T951.png", "T951", "5.8×42"],
+    ["AR", "AR_18_T03.png", "T03", "5.8×42"],
+    ["AR", "AR_19_SG550.png", "SG550", "5.56×45"],
+    ["AR", "AR_20_G3.png", "G3", "7.62×51"],
+    ["AR", "AR_21_AK12.png", "AK12", "5.45×39"],
+    ["AR", "AR_22_MCX.png", "MCX", "5.56×45"],
+    ["AR", "AR_23_T191.png", "T191", "5.8×42"],
+    ["AR", "AR_24_T192.png", "T192", "5.8×42"],
+    ["AR", "AR_25_A545.png", "A545", "5.45×39"],
+    ["AR", "AR_26_PCC-9.png", "PCC-9", "9×19"],
+    ["AR", "AR_27_AK15SC.png", "AK15SC", "7.62×39"],
+    ["AR", "AR_28_AMB-17.png", "AMB-17", "9×39"],
+    ["AR", "AR_29_ZC807.png", "ZC807", "7.62×39"],
+    ["SMG", "SMG_01_MP5.png", "MP5", "9×19"],
+    ["SMG", "SMG_02_MPX.png", "MPX", "9×19"],
+    ["SMG", "SMG_03_P90.png", "P90", "5.7×28"],
+    ["SMG", "SMG_04_Uzi.png", "Uzi", "9×19"],
+    ["SMG", "SMG_05_UMP45.png", "UMP45", ".45"],
+    ["SMG", "SMG_06_MAC-10.png", "MAC-10", ".45"],
+    ["SMG", "SMG_07_M3A1.png", "M3A1", ".45"],
+    ["SMG", "SMG_08_T79.png", "T79", "7.62×25"],
+    ["SMG", "SMG_09_MP40.png", "MP 40", "9×19"],
+    ["SMG", "SMG_10_QC61.png", "QC61", "7.62×25"],
+    ["SMG", "SMG_11_MPF45.png", "MPF45", ".45"],
+    ["SMG", "SMG_12_T85.png", "T85", "7.62×25"],
+    ["SMG", "SMG_13_Vector45.png", "Vector 45", ".45"],
+    ["SMG", "SMG_14_Vector9.png", "Vector 9", "9×19"],
+    ["SMG", "SMG_15_Banshee.png", "Banshee", "5.7×28"],
+    ["SMG", "SMG_16_PP19.png", "PP19", "9×19"],
+    ["CB", "CB_01_SA85M.png", "SA85M", "7.62×39"],
+    ["CB", "CB_02_SKS.png", "SKS", "7.62×39"],
+    ["CB", "CB_03_M14.png", "M14", "7.62×51"],
+    ["CB", "CB_04_M96.png", "M96", "5.56×45"],
+    ["CB", "CB_05_Mini14.png", "Mini14", "5.56×45"],
+    ["CB", "CB_06_BM59.png", "BM59", "7.62×51"],
+    ["CB", "CB_07_SVTU.png", "SVTU", "7.62×54"],
+    ["CB", "CB_08_M16.png", "M16", "5.56×45"],
+    ["DMR", "DMR_01_SVDS.png", "SVDS", "7.62×54"],
+    ["DMR", "DMR_02_VSS.png", "VSS", "9×39"],
+    ["DMR", "DMR_03_Mk14.png", "Mk14", "7.62×51"],
+    ["DMR", "DMR_04_M110.png", "M110", "7.62×51"],
+    ["DMR", "DMR_05_T88.png", "T88", "5.8×42"],
+    ["DMR", "DMR_06_U191.png", "U191", "5.8×42"],
+    ["DMR", "DMR_07_ML_Rifle.png", "ML Rifle", ".44"],
+    ["BR", "BR_01_Mosin.png", "Mosin", "7.62×54"],
+    ["BR", "BR_02_SJ16.png", "SJ16", ".338"],
+    ["BR", "BR_03_M24.png", "M24", "7.62×51"],
+    ["SG", "SG_01_M870.png", "M870", "12×70"],
+    ["SG", "SG_02_MP-133.png", "MP-133", "12×70"],
+    ["SG", "SG_03_S12K.png", "S12K", "12×70"],
+    ["SG", "SG_04_USAS-12.png", "USAS-12", "12×70"],
+    ["SG", "SG_05_SPR310.png", "SPR310", "12×70"],
+    ["LMG", "LMG_01_RPK-16.png", "RPK-16", "5.45×39"],
+    ["HG", "HG_01_G17.png", "G17", "9×19"],
+    ["HG", "HG_02_M9A3.png", "M9A3", "9×19"],
+    ["HG", "HG_03_G18C.png", "G18C", "9×19"],
+    ["HG", "HG_04_Deagle.png", "Deagle", ".44"],
+    ["HG", "HG_05_T54.png", "T54", "7.62×25"],
+    ["HG", "HG_06_M1911.png", "M1911", ".45"],
+    ["HG", "HG_07_MP9.png", "MP9", "9×19"],
+    ["HG", "HG_08_G-Deagle.png", "G-Deagle", ".44"],
+    ["HG", "HG_09_T05.png", "T05", "9×19"],
+    ["HG", "HG_10_M45A1.png", "M45A1", ".45"],
+    ["HG", "HG_11_CZ52.png", "CZ 52", "7.62×25"],
+    ["HG", "HG_12_F57.png", "F57", "5.7×28"]
+  ];
+
+  /* =========================================================
+     基礎ステータス（ゲーム内のステータス画面より・カスタムなし）
+     [垂直, 水平, エルゴ, 安定性, 精度, 腰撃ち, 有効距離, 初速, モード, RPM, 射撃力, 特殊効果]
+     ========================================================= */
+  const STATS = {
+    "AR_01_AKM.png": [50, 47, 44, 50, 38, 71, 62, 715, "セミ、フル", 600, "中", ""],
+    "AR_02_M4A1.png": [71, 55, 57, 50, 41, 72, 56, 900, "セミ、フル", 750, "中～高", ""],
+    "AR_03_FAL.png": [57, 48, 43, 48, 42, 57, 58, 820, "セミ、フル", 630, "中～低", ""],
+    "AR_04_H416.png": [72, 51, 73, 48, 39, 74, 37, 910, "セミ、フル", 860, "中～高", ""],
+    "AR_05_MDR.png": [75, 25, 66, 58, 42, 74, 59, 960, "セミ、フル", 700, "高", "衝撃振動耐性 +20%"],
+    "AR_06_AK-102.png": [67, 50, 50, 50, 38, 77, 57, 850, "セミ、フル", 600, "中", ""],
+    "AR_07_AK-74N.png": [60, 47, 48, 52, 39, 71, 48, 900, "セミ、フル", 550, "中", ""],
+    "AR_08_AKS-74U.png": [52, 36, 44, 50, 29, 72, 38, 735, "セミ、フル", 500, "低", ""],
+    "AR_09_AUG.png": [77, 69, 68, 51, 59, 81, 53, 970, "セミ、フル", 750, "高", "ADS移動速度 +30%"],
+    "AR_10_F2000.png": [80, 74, 67, 51, 39, 83, 55, 900, "セミ、フル", 850, "中～高", "忍び足での移動速度 +10%"],
+    "AR_11_AR-57.png": [69, 55, 57, 50, 41, 69, 58, 800, "セミ、フル", 850, "中～高", ""],
+    "AR_12_ACE31.png": [50, 31, 59, 48, 48, 74, 66, 800, "セミ、フル", 650, "中", ""],
+    "AR_13_AEK.png": [57, 38, 63, 48, 42, 70, 65, 800, "セミ、フル", 800, "中", ""],
+    "AR_14_AN-94.png": [60, 44, 59, 48, 72, 75, 67, 900, "2点バースト、セミ、フル", 680, "中～高", ""],
+    "AR_15_FAMAS.png": [73, 42, 59, 51, 45, 70, 46, 850, "3点バースト、セミ、フル", 900, "中～高", ""],
+    "AR_16_SCAR-L.png": [66, 44, 70, 52, 50, 73, 52, 875, "セミ、フル", 500, "中", ""],
+    "AR_17_T951.png": [70, 40, 57, 51, 42, 68, 51, 930, "セミ、フル", 650, "中", ""],
+    "AR_18_T03.png": [77, 37, 57, 49, 45, 72, 61, 930, "セミ、フル", 700, "中～高", ""],
+    "AR_19_SG550.png": [55, 37, 46, 50, 32, 61, 47, 760, "セミ、フル", 525, "低", ""],
+    "AR_20_G3.png": [54, 29, 53, 47, 38, 65, 45, 790, "セミ、フル", 460, "中", ""],
+    "AR_21_AK12.png": [69, 50, 60, 47, 43, 79, 64, 880, "3点バースト、セミ、フル", 730, "中～高", ""],
+    "AR_22_MCX.png": [77, 69, 80, 46, 30, 71, 40, 820, "セミ、フル", 700, "中～高", ""],
+    "AR_23_T191.png": [64, 42, 73, 60, 80, 72, 55, 930, "セミ、フル", 750, "中～高", ""],
+    "AR_24_T192.png": [66, 42, 84, 76, 60, 80, 47, 900, "セミ、フル", 750, "中～高", "ADS移動速度 +20%"],
+    "AR_25_A545.png": [77, 63, 70, 60, 65, 61, 48, 880, "2点バースト、セミ、フル", 900, "超高", ""],
+    "AR_26_PCC-9.png": [70, 51, 78, 55, 28, 73, 41, 396, "セミ", 600, "中～高", ""],
+    "AR_27_AK15SC.png": [65, 56, 72, 46, 44, 66, 44, 710, "セミ、フル", 730, "中", "弾丸の衝撃力 +40%"],
+    "AR_28_AMB-17.png": [75, 63, 61, 51, 49, 64, 43, 310, "セミ、フル", 730, "中", "消音効果 中"],
+    "AR_29_ZC807.png": [66, 50, 74, 48, 37, 60, 56, 760, "セミ、フル", 750, "中", ""],
+    "SMG_01_MP5.png": [70, 50, 74, 42, 22, 76, 32, 400, "セミ、フル", 750, "中～高", ""],
+    "SMG_02_MPX.png": [68, 48, 81, 45, 25, 74, 37, 390, "セミ、フル", 850, "中～高", "マガジンリロード速度 +30%"],
+    "SMG_03_P90.png": [73, 69, 72, 43, 20, 73, 41, 715, "セミ、フル", 1000, "中～低", ""],
+    "SMG_04_Uzi.png": [64, 43, 68, 40, 18, 65, 33, 400, "セミ、フル", 700, "中", ""],
+    "SMG_05_UMP45.png": [65, 47, 66, 43, 20, 63, 39, 285, "セミ、フル", 650, "中", ""],
+    "SMG_06_MAC-10.png": [70, 50, 74, 41, 25, 72, 38, 366, "セミ、フル", 745, "中", ""],
+    "SMG_07_M3A1.png": [68, 50, 60, 40, 19, 60, 39, 274, "フル", 450, "中～低", ""],
+    "SMG_08_T79.png": [65, 48, 67, 43, 17, 64, 38, 515, "セミ、フル", 750, "中～低", ""],
+    "SMG_09_MP40.png": [68, 42, 65, 40, 17, 61, 32, 400, "フル", 500, "中～高", ""],
+    "SMG_10_QC61.png": [61, 41, 69, 42, 19, 62, 38, 490, "セミ、フル", 700, "中～低", ""],
+    "SMG_11_MPF45.png": [56, 37, 71, 42, 15, 76, 30, 235, "セミ、フル", 700, "中～低", ""],
+    "SMG_12_T85.png": [75, 74, 70, 42, 23, 71, 44, 500, "セミ、フル", 780, "中～低", ""],
+    "SMG_13_Vector45.png": [62, 47, 71, 41, 21, 79, 33, 270, "2点バースト、セミ、フル", 1100, "低", ""],
+    "SMG_14_Vector9.png": [58, 40, 74, 41, 20, 77, 39, 300, "2点バースト、セミ、フル", 950, "中", ""],
+    "SMG_15_Banshee.png": [70, 58, 69, 55, 23, 75, 38, 720, "セミ、フル", 750, "中～高", "忍び足での移動速度 +20%"],
+    "SMG_16_PP19.png": [68, 58, 79, 41, 38, 60, 30, 380, "セミ、フル", 750, "中", ""],
+    "CB_01_SA85M.png": [51, 46, 42, 60, 62, 70, 61, 716, "セミ", 300, "中～低", ""],
+    "CB_02_SKS.png": [42, 39, 46, 65, 77, 50, 67, 735, "セミ", 300, "中～高", ""],
+    "CB_03_M14.png": [44, 39, 45, 63, 76, 61, 73, 853, "セミ", 350, "中～高", ""],
+    "CB_04_M96.png": [59, 35, 50, 60, 55, 60, 66, 960, "3点バースト", 400, "中～高", ""],
+    "CB_05_Mini14.png": [72, 52, 60, 67, 70, 55, 77, 990, "セミ", 400, "高", ""],
+    "CB_06_BM59.png": [34, 25, 48, 55, 60, 46, 69, 823, "セミ", 300, "中", ""],
+    "CB_07_SVTU.png": [30, 25, 30, 50, 35, 42, 73, 640, "セミ", 200, "低", ""],
+    "CB_08_M16.png": [64, 39, 53, 48, 43, 72, 84, 875, "セミ、3点バースト", 660, "中～高", ""],
+    "DMR_01_SVDS.png": [43, 44, 44, 64, 91, 22, 93, 815, "セミ", 225, "高", "弾丸の衝撃力 +30%"],
+    "DMR_02_VSS.png": [65, 45, 57, 55, 44, 71, 37, 287, "セミ、フル", 850, "中", "消音効果 低 ／ ADS移動速度 +20%"],
+    "DMR_03_Mk14.png": [57, 54, 59, 54, 69, 48, 61, 853, "セミ、フル", 700, "中～高", "弾丸の衝撃力 +50%"],
+    "DMR_04_M110.png": [58, 51, 58, 66, 91, 48, 91, 783, "セミ", 300, "中～高", ""],
+    "DMR_05_T88.png": [76, 61, 64, 55, 88, 55, 117, 895, "セミ", 400, "超高", "弾丸の衝撃力 +30%"],
+    "DMR_06_U191.png": [63, 49, 46, 72, 90, 51, 69, 950, "セミ、フル", 750, "高", ""],
+    "DMR_07_ML_Rifle.png": [37, 29, 62, 65, 86, 85, 74, 457, "セミ", 75, "中", ""],
+    "BR_01_Mosin.png": [9, 12, 22, 64, 87, 10, 100, 830, "ボルトアクション", 28, "低", ""],
+    "BR_02_SJ16.png": [11, 15, 32, 65, 90, 10, 125, 1300, "ボルトアクション", 26, "中～高", ""],
+    "BR_03_M24.png": [7, 12, 39, 68, 90, 10, 120, 853, "ボルトアクション", 30, "高", ""],
+    "SG_01_M870.png": [14, 15, 44, 43, 9, 50, 14, 403, "ポンプアクション", 70, "高", ""],
+    "SG_02_MP-133.png": [7, 6, 47, 41, 5, 51, 13, 337, "ポンプアクション", 60, "中", ""],
+    "SG_03_S12K.png": [30, 32, 66, 41, 10, 51, 16, 396, "セミ", 200, "中～高", ""],
+    "SG_04_USAS-12.png": [37, 42, 53, 40, 12, 50, 14, 400, "セミ、フル", 275, "中～高", ""],
+    "SG_05_SPR310.png": [25, 24, 49, 38, 10, 50, 12, 410, "セミ", 300, "中", ""],
+    "LMG_01_RPK-16.png": [73, 58, 51, 55, 57, 66, 61, 890, "セミ、フル", 750, "高", "衝撃振動耐性 +50%"],
+    "HG_01_G17.png": [56, 23, 73, 51, 15, 65, 16, 375, "セミ", 400, "低", ""],
+    "HG_02_M9A3.png": [46, 27, 81, 50, 14, 61, 20, 372, "セミ", 600, "低", ""],
+    "HG_03_G18C.png": [57, 24, 73, 43, 16, 65, 14, 375, "セミ、フル", 1000, "低", ""],
+    "HG_04_Deagle.png": [40, 24, 65, 46, 30, 58, 36, 470, "セミ", 300, "中", ""],
+    "HG_05_T54.png": [52, 23, 71, 50, 15, 64, 14, 420, "セミ", 325, "低", ""],
+    "HG_06_M1911.png": [54, 26, 77, 51, 14, 63, 18, 251, "セミ", 350, "中～高", ""],
+    "HG_07_MP9.png": [69, 42, 69, 44, 13, 72, 13, 400, "セミ、フル", 750, "中", ""],
+    "HG_08_G-Deagle.png": [66, 35, 88, 46, 30, 58, 36, 470, "セミ", 300, "中", ""],
+    "HG_09_T05.png": [41, 22, 77, 50, 11, 58, 16, 300, "セミ", 300, "低", ""],
+    "HG_10_M45A1.png": [58, 28, 84, 50, 15, 76, 14, 310, "セミ", 250, "中～高", ""],
+    "HG_11_CZ52.png": [55, 26, 77, 48, 13, 61, 18, 500, "セミ", 325, "低", ""],
+    "HG_12_F57.png": [60, 25, 83, 53, 22, 62, 23, 650, "セミ", 400, "中～高", ""]
+  };
+
+  const STAT_LABELS = [
+    ['リコイル制御（垂直）', 'Vertical recoil control'],
+    ['リコイル制御（水平）', 'Horizontal recoil control'],
+    ['エルゴノミクス',       'Ergonomics'],
+    ['武器の安定性',         'Stability'],
+    ['精度',                 'Accuracy'],
+    ['腰撃ち安定度',         'Hip-fire stability'],
+    ['有効距離',             'Effective range'],
+    ['銃口初速',             'Muzzle velocity'],
+  ];
+  // バーの最大値（有効距離と初速は全銃の最大値に合わせる）
+  const allStats = Object.values(STATS);
+  const STAT_MAX = [100, 100, 100, 100, 100, 100,
+    Math.max(...allStats.map(s => s[6])), Math.max(...allStats.map(s => s[7]))];
+
+  const EN = {
+    'セミ': 'Semi', 'フル': 'Full', '2点バースト': '2-round burst', '3点バースト': '3-round burst',
+    'ボルトアクション': 'Bolt-action', 'ポンプアクション': 'Pump-action',
+    '低': 'Low', '中': 'Medium', '高': 'High', '超高': 'Very high', '中～高': 'Medium–High', '中～低': 'Medium–Low',
+    '衝撃振動耐性': 'Shock resistance', 'ADS移動速度': 'ADS move speed', '忍び足での移動速度': 'Crouch-walk speed',
+    '弾丸の衝撃力': 'Bullet impact', '消音効果': 'Suppression', 'マガジンリロード速度': 'Mag reload speed',
+  };
+  const en = t => t.split('、').map(x => EN[x] || x).join(', ');
+  const enExtra = t => t.split(' ／ ').map(p => {
+    const [k, ...v] = p.split(' '); const val = v.join(' ');
+    return `${p} <span class="sub">/ ${EN[k] || k} ${EN[val] || val}</span>`;
+  }).join('<br>');
+
+  // 同じ種類の平均（金色の線で表示）
+  function typeAvg(code, i) {
+    const xs = WEAPONS.filter(w => w[0] === code && STATS[w[1]]).map(w => STATS[w[1]][i]);
+    return xs.reduce((a, b) => a + b, 0) / xs.length;
+  }
+
+
+  /* =========================================================
+     弾薬データ： [口径, 弾の名前, レベル, マーケット価格（1発）, 枠の色]
+     価格は 2026-10-25 時点。変わったらここの数字を書き換えるだけ
+     ========================================================= */
+  const AMMO = [
+    ["5.45×39", "PRS", 1, 84, "灰"],
+    ["5.45×39", "PS", 2, 117, "灰"],
+    ["5.45×39", "PP", 3, 295, "紫"],
+    ["5.45×39", "HP", 1, 280, "紫"],
+    ["5.45×39", "BP", 4, 2002, "橙"],
+    ["5.45×39", "BS", 5, 6496, "橙"],
+    ["5.56×45", "M193", 1, 75, "灰"],
+    ["5.56×45", "FMJハン…", 2, 160, "灰"],
+    ["5.56×45", "HPハンテ…", 1, 245, "灰"],
+    ["5.56×45", "M855", 3, 504, "紫"],
+    ["5.56×45", "M855A1…", 4, 836, "橙"],
+    ["5.56×45", "M855A2…", 4, 2046, "橙"],
+    ["5.56×45", "M995", 5, 6600, "橙"],
+    ["5.7×28", "R37.F", 0, 282, "灰"],
+    ["5.7×28", "R37.X", 1, 288, "紫"],
+    ["5.7×28", "L191", 3, 441, "紫"],
+    ["5.7×28", "SS197SR", 2, 370, "灰"],
+    ["5.7×28", "SS190", 4, 1800, "橙"],
+    ["5.7×28", "SS198", 5, 6499, "橙"],
+    ["5.8×42", "DBP87", 3, 324, "紫"],
+    ["5.8×42", "DVP88", 4, 1560, "橙"],
+    ["5.8×42", "DVC12", 5, 7296, "橙"],
+    ["7.62×25", "AKBS", 1, 24, "灰"],
+    ["7.62×25", "PT", 1, 41, "灰"],
+    ["7.62×25", "LRN", 0, 132, "灰"],
+    ["7.62×25", "Pst", 2, 93, "灰"],
+    ["7.62×39", "LP", 1, 66, "灰"],
+    ["7.62×39", "US", 2, 150, "灰"],
+    ["7.62×39", "HP", 1, 258, "紫"],
+    ["7.62×39", "PS", 3, 342, "紫"],
+    ["7.62×39", "T45M", 3, 688, "紫"],
+    ["7.62×39", "BP", 4, 1568, "橙"],
+    ["7.62×39", "AP", 5, 6664, "橙"],
+    ["7.62×51", "UN", 1, 104, "灰"],
+    ["7.62×51", "BPZ", 3, 629, "紫"],
+    ["7.62×51", "M80", 4, 1406, "橙"],
+    ["7.62×51", "M62", 5, 18240, "橙"],
+    ["7.62×54", "T46M", 3, 272, "紫"],
+    ["7.62×54", "LPS", 4, 1700, "橙"],
+    ["7.62×54", "7BT1", 5, 4522, "橙"],
+    ["9×19", "Pst", 2, 33, "灰"],
+    ["9×19", "PSO", 1, 54, "灰"],
+    ["9×19", "ダムダム", 0, 272, "紫"],
+    ["9×19", "AP6.3", 3, 245, "紫"],
+    ["9×19", "7N31", 4, 722, "橙"],
+    ["9×39", "SP5", 3, 210, "紫"],
+    ["9×39", "SP6", 4, 1036, "橙"],
+    ["9×39", "7N9", 4, 1656, "橙"],
+    ["9×39", "7N12", 5, 4410, "橙"],
+    ["12×70", "5型バック…", 0, 67, "灰"],
+    ["12×70", "8型バック…", 0, 226, "灰"],
+    ["12×70", "7型バック…", 1, 231, "灰"],
+    ["12×70", "フレシェッ…", 3, 252, "紫"],
+    ["12×70", "RIPスラグ", 0, 496, "紫"],
+    ["12×70", "グリズリー…", 1, 344, "灰"],
+    ["12×70", "Ledスラグ", 1, 420, "紫"],
+    ["12×70", "デュアルシ…", 1, 444, "紫"],
+    ["12×70", "GTスラグ", 2, 576, "紫"],
+    ["12×70", "徹甲スラグ", 3, 592, "橙"],
+    [".44", "LFNP", 2, 133, "灰"],
+    [".44", "SJHP", 3, 280, "紫"],
+    [".44", "JSP", 4, 740, "橙"],
+    [".45", "FMJ", 1, 40, "灰"],
+    [".45", "HS", 1, 102, "灰"],
+    [".45", "AP", 3, 420, "紫"],
+    [".338", "UPZ", 4, 3458, "橙"],
+    [".338", "FMJ", 5, 5472, "橙"]
+  ];
+  const TIMES = [5, 10, 20, 30, 60];   // 秒
+  let magSize = 30;                     // マガジンの弾数（画面で変更可）
+  const yen = n => Math.round(n).toLocaleString();
+
+  function costHtml(w) {
+    const s = STATS[w[1]];
+    const ammo = AMMO.filter(a => a[0] === w[3]).sort((a, b) => a[2] - b[2] || a[3] - b[3]);
+    if (!s || !ammo.length) return '';
+    const rpm = s[9];
+    const shots = TIMES.map(t => Math.round(rpm * t / 60));
+    const head = TIMES.map((t, i) =>
+      `<th>${t < 60 ? t + '秒' : '1分'}<span class="r">${shots[i].toLocaleString()}発</span></th>`).join('');
+    const body = ammo.map(a => `<tr>
+        <td><span class="dot ${a[4]}"></span>${a[1]}<span class="lv">Lv${a[2]}</span></td>
+        <td>${yen(a[3])}</td>
+        ${shots.map(n => `<td>${yen(n * a[3])}</td>`).join('')}
+        <td class="mag">${yen(magSize * a[3])}</td></tr>`).join('');
+    return `<div class="cost">
+      <h3>弾薬コスト <span class="sub">/ Ammo cost</span></h3>
+      <div class="note">${rpm.toLocaleString()} RPM で撃ち続けた場合の弾代（リロード時間は含まない）
+        <span class="sub">/ Cost of continuous fire at ${rpm} RPM, excluding reloads</span><br>
+        マガジン <input type="number" id="magInput" min="1" max="200" value="${magSize}"> 発を撃ち尽くした場合
+        <span class="sub">/ Cost to empty one magazine</span></div>
+      <div class="wrap"><table>
+        <tr><th>弾 <span class="sub">/ Ammo</span></th><th>単価<span class="r">1発</span></th>${head}
+            <th class="mag">マガジン<span class="r">${magSize}発</span></th></tr>
+        ${body}
+      </table></div></div>`;
+  }
+
+  function statsHtml(w) {
+    const s = STATS[w[1]];
+    if (!s) return '';
+    const bars = STAT_LABELS.map(([ja, e], i) => {
+      const pct = Math.min(100, s[i] / STAT_MAX[i] * 100);
+      const avg = Math.min(100, typeAvg(w[0], i) / STAT_MAX[i] * 100);
+      return `<div class="stat"><div class="row"><span>${ja} <span class="sub">/ ${e}</span></span><b>${s[i].toLocaleString()}</b></div>
+        <div class="bar"><i style="width:${pct}%"></i><u style="left:${avg}%"></u></div></div>`;
+    }).join('');
+    return `<div class="stats">${bars}</div>
+      <div class="legend">金の線<u></u>= ${TYPES[w[0]][0]}の平均 <span class="sub">/ Average of ${TYPES[w[0]][1]}</span></div>
+      <dl class="kv">
+        <dt>モード <span class="sub">/ Fire mode</span></dt><dd>${s[8]} <span class="sub">/ ${en(s[8])}</span></dd>
+        <dt>連射速度 <span class="sub">/ Fire rate</span></dt><dd>${s[9].toLocaleString()} RPM</dd>
+        <dt>弾薬の口径 <span class="sub">/ Caliber</span></dt><dd>${w[3]}</dd>
+        <dt>射撃力 <span class="sub">/ Power</span></dt><dd>${s[10]} <span class="sub">/ ${en(s[10])}</span></dd>
+        ${s[11] ? `<dt>特殊効果 <span class="sub">/ Special</span></dt><dd>${enExtra(s[11])}</dd>` : ''}
+      </dl>`;
+  }
+
+  /* 種類コード → 表示名（この順番で並ぶ） */
+  const TYPES = {
+    AR:  ['アサルトライフル',         'Assault Rifle'],
+    SMG: ['サブマシンガン',           'Submachine Gun'],
+    CB:  ['カービン',                 'Carbine'],
+    DMR: ['マークスマンライフル',     'Marksman Rifle'],
+    BR:  ['ボルトアクションライフル', 'Bolt-Action Rifle'],
+    SG:  ['ショットガン',             'Shotgun'],
+    LMG: ['ライトマシンガン',         'Light Machine Gun'],
+    HG:  ['ピストル',                 'Pistol'],
+  };
+
+  let mode = 'type';   // 'type' = 種類別, 'cal' = 弾丸別
+  let filter = 'all';
+
+  // 弾丸の一覧（使っている銃が多い順）
+  const calCount = {};
+  WEAPONS.forEach(w => calCount[w[3]] = (calCount[w[3]] || 0) + 1);
+  const CALIBERS = Object.keys(calCount).sort((a, b) => calCount[b] - calCount[a]);
+
+  const keyOf  = w => mode === 'type' ? w[0] : w[3];
+  const groups = () => mode === 'type' ? Object.keys(TYPES) : CALIBERS;
+  const label  = k => mode === 'type' ? `${TYPES[k][0]} <span class="sub">/ ${TYPES[k][1]}</span>` : k;
+
+  function renderChips() {
+    const box = document.getElementById('chips');
+    const items = [['all', `すべて <span class="sub">/ All</span>`, WEAPONS.length]]
+      .concat(groups().map(k => [k, label(k), WEAPONS.filter(w => keyOf(w) === k).length]));
+    box.innerHTML = items.map(([k, l, n]) =>
+      `<button data-k="${k}" class="${k === filter ? 'on' : ''}">${l}<span class="n">${n}</span></button>`).join('');
+    box.querySelectorAll('button').forEach(b => b.onclick = () => { filter = b.dataset.k; render(); });
+  }
+
+  function renderList() {
+    const list = document.getElementById('list');
+    const keys = filter === 'all' ? groups() : [filter];
+    const act = activeSorts();
+    const cell = (w, r) => {
+      // 右上：優先度1の値（大きく）、優先度2・3の値（小さく）
+      const vals = act.map((o, j) => {
+        const v = valOf(w, o.k); const t = v === null ? '—' : v.toLocaleString();
+        return j === 0 ? t : `<small>${t}</small>`;
+      }).join('');
+      return `<div class="cell"><img src="images/${w[1]}" data-i="${WEAPONS.indexOf(w)}" alt="${w[2]}" title="${w[2]}" loading="lazy">${
+        act.length ? `<span class="rank">${r + 1}</span><span class="val">${vals}</span>` : ''}</div>`;
+    };
+    if (!grouped && act.length) {
+      // グループ分けなし：絞り込んだ範囲の中で通しの順位
+      const ws = sorted(WEAPONS.filter(w => filter === 'all' || keyOf(w) === filter));
+      const title = act.map(o => `${SORTS[o.k][0]}${o.desc ? '▼' : '▲'}`).join(' → ');
+      list.innerHTML = `<div class="group-title">${title}（${ws.length}）</div>
+        <div class="grid">${ws.map(cell).join('')}</div>`;
+    } else {
+      list.innerHTML = keys.map(k => {
+        const ws = sorted(WEAPONS.filter(w => keyOf(w) === k));
+        if (!ws.length) return '';
+        return `<div class="group-title">${label(k)}（${ws.length}）</div>
+          <div class="grid">${ws.map(cell).join('')}</div>`;
+      }).join('');
+    }
+    list.querySelectorAll('.grid img').forEach(img => {
+      img.classList.toggle('pinned', pinned === WEAPONS[img.dataset.i]);
+      // カーソルが乗ったら一時的に表示
+      img.addEventListener('mouseenter', () => show(WEAPONS[img.dataset.i]));
+      // 離れたら、固定中の銃に戻す（固定していなければ消す）
+      img.addEventListener('mouseleave', () => pinned ? show(pinned) : preview.classList.remove('show'));
+      // クリックで固定（同じカードをもう一度クリックすると解除）
+      img.addEventListener('click', e => {
+        e.stopPropagation();
+        const w = WEAPONS[img.dataset.i];
+        setPin(pinned === w ? null : w);
+      });
+    });
+  }
+
+  // 右側に拡大表示＋情報（同じ弾を使う銃も出す）
+  const preview = document.getElementById('preview');
+  let pinned = null;   // クリックで固定中の銃
+
+  function setPin(w) {
+    pinned = w;
+    document.querySelectorAll('.grid img').forEach(img =>
+      img.classList.toggle('pinned', WEAPONS[img.dataset.i] === pinned));
+    if (pinned) show(pinned); else preview.classList.remove('show');
+  }
+
+  // 背景をクリックしたら固定を解除（ボタン類やスライダーは除く）
+  document.addEventListener('click', e => {
+    if (pinned && !e.target.closest('button, select, label, input, .size-control, .preview')) setPin(null);
+  });
+  // Escキーでも解除
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') setPin(null); });
+  function show(w) {
+    document.getElementById('pvImg').src = 'images/' + w[1];
+    const sameW = WEAPONS.filter(x => x[3] === w[3] && x !== w);
+    const same = sameW.map(x => x[2]);
+    document.getElementById('pvInfo').innerHTML =
+      `<b>${w[2]}</b>${w === pinned ? '<span class="pin-badge">📌 固定中 / Pinned</span>' : ''}<br>
+       <span class="tag">${TYPES[w[0]][0]} / ${TYPES[w[0]][1]}</span><span class="tag cal">${w[3]}</span>
+       ${statsHtml(w)}
+       ${costHtml(w)}
+       <div class="same">同じ弾を使う銃 <span class="sub">/ Same caliber</span>：
+         <span>${same.length ? same.join('、') : 'なし / None'}</span></div>
+       <div class="same-grid">${sameW.map(x =>
+         `<img src="images/${x[1]}" data-i="${WEAPONS.indexOf(x)}" alt="${x[2]}" title="${x[2]}（クリックで表示 / Click to show）">`).join('')}</div>
+       <div class="hint">${w === pinned
+         ? '背景クリック または Esc で解除 / Click the background or press Esc to unpin'
+         : 'クリックで固定 / Click to pin'}</div>`;
+    preview.classList.add('show');
+    preview.classList.toggle('pinned', w === pinned);
+    // 同じ弾の銃の写真をクリックすると、その銃に固定を切り替える
+    // マガジン弾数を変えたら表を描き直す
+    const mi = document.getElementById('magInput');
+    if (mi) mi.addEventListener('change', () => {
+      magSize = Math.max(1, Math.min(200, parseInt(mi.value) || 30));
+      show(w);
+    });
+    preview.querySelectorAll('.same-grid img').forEach(img =>
+      img.addEventListener('click', e => { e.stopPropagation(); setPin(WEAPONS[img.dataset.i]); }));
+  }
+
+  function render() { renderChips(); renderList(); }
+
+  /* ---------- 並べ替え ---------- */
+  // [日本語, 英語, STATSの何番目か]
+  const SORTS = [
+    ['リコイル制御（垂直）', 'Vertical recoil', 0], ['リコイル制御（水平）', 'Horizontal recoil', 1],
+    ['エルゴノミクス', 'Ergonomics', 2], ['武器の安定性', 'Stability', 3], ['精度', 'Accuracy', 4],
+    ['腰撃ち安定度', 'Hip-fire stability', 5], ['有効距離', 'Effective range', 6],
+    ['銃口初速', 'Muzzle velocity', 7], ['連射速度（RPM）', 'Fire rate', 9],
+  ];
+  // 優先度1〜3（k = -1 は「なし」）
+  const sortSpec = [{ k: -1, desc: true }, { k: -1, desc: true }, { k: -1, desc: true }];
+  let grouped = true;
+
+  // 使われている条件だけ（上から順に、「なし」が出たらそこで打ち切り）
+  function activeSorts() {
+    const out = [];
+    for (const o of sortSpec) { if (o.k < 0) break; out.push(o); }
+    return out;
+  }
+  const valOf = (w, k) => !STATS[w[1]] ? null : STATS[w[1]][SORTS[k][2]];
+  function sorted(ws) {
+    const act = activeSorts();
+    if (!act.length) return ws;
+    return [...ws].sort((a, b) => {
+      for (const o of act) {
+        const d = valOf(a, o.k) - valOf(b, o.k);
+        if (d) return o.desc ? -d : d;      // 差があればそこで決まる。同じなら次の優先度へ
+      }
+      return WEAPONS.indexOf(a) - WEAPONS.indexOf(b);
+    });
+  }
+
+  const dirLabel = d => d ? '▼ 高い順 <span class="sub">/ High→Low</span>' : '▲ 低い順 <span class="sub">/ Low→High</span>';
+  function renderSortRows() {
+    const box = document.getElementById('sortRows');
+    const actN = activeSorts().length;
+    box.innerHTML = sortSpec.map((o, i) => {
+      const off = i > actN;   // 上の優先度が「なし」なら使えない
+      const used = sortSpec.filter((x, j) => j !== i && j < actN).map(x => x.k);
+      return `<div class="sortrow ${off ? 'off' : ''}">
+        <span class="pri">優先度${i + 1}<br><span class="sub">Priority ${i + 1}</span></span>
+        <select data-i="${i}" ${off ? 'disabled' : ''}>
+          <option value="-1">${i === 0 ? '標準（番号順） / Default' : 'なし / None'}</option>
+          ${SORTS.map((s, j) => used.includes(j) ? '' :
+            `<option value="${j}" ${o.k === j ? 'selected' : ''}>${s[0]} / ${s[1]}</option>`).join('')}
+        </select>
+        <button data-i="${i}" ${off || o.k < 0 ? 'disabled' : ''}>${dirLabel(o.desc)}</button></div>`;
+    }).join('');
+    box.querySelectorAll('select').forEach(sel => sel.onchange = () => {
+      const i = +sel.dataset.i;
+      sortSpec[i].k = +sel.value;
+      if (sortSpec[i].k < 0) for (let j = i + 1; j < 3; j++) sortSpec[j].k = -1;   // 下の優先度もクリア
+      renderSortRows(); renderList();
+    });
+    box.querySelectorAll('button').forEach(btn => btn.onclick = () => {
+      const o = sortSpec[+btn.dataset.i]; o.desc = !o.desc;
+      renderSortRows(); renderList();
+    });
+  }
+  renderSortRows();
+  document.getElementById('sortReset').onclick = () => {
+    sortSpec.forEach(o => { o.k = -1; o.desc = true; });
+    renderSortRows(); renderList();
+  };
+  document.getElementById('groupChk').onchange = e => { grouped = e.target.checked; renderList(); };
+
+  document.querySelectorAll('.modes button').forEach(b => b.onclick = () => {
+    mode = b.dataset.mode; filter = 'all';
+    document.querySelectorAll('.modes button').forEach(x => x.classList.toggle('on', x === b));
+    render();
+  });
+  render();
+
+  // 表示サイズのスライダー（CSSの --preview-width を書き換えるだけ）
+  const slider = document.getElementById('sizeSlider');
+  const sv     = document.getElementById('sizeValue');
+  const start  = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--preview-width')) || 660;
+  slider.value = start; sv.textContent = start + 'px';
+  slider.addEventListener('input', () => {
+    document.documentElement.style.setProperty('--preview-width', slider.value + 'px');
+    sv.textContent = slider.value + 'px';
+  });
+</script>
+</body>
+</html>
