@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>スコープビューア / Scope Viewer</title>
+<style>
+  /* =========================================================
+     ★ よく変える設定はここ ★
+     --columns     : 一覧の列の数
+     --icon-size   : 一覧アイコンの大きさ
+     --popup-width : 右側に出す拡大画像の横幅（高さは自動で4:3）
+       例) 640px / 960px / 1280px / 50vw（画面幅の50%）
+     ========================================================= */
+  :root {
+    --columns: 3;
+    --icon-size: 110px;
+    --popup-width: 960px;
+  }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: #1b1d1f;
+    color: #ddd;
+    font-family: "Segoe UI", "Yu Gothic UI", sans-serif;
+    padding: 40px 24px 90px;   /* 下はサイズバーの分だけ空ける */
+    box-sizing: border-box;
+  }
+
+  /* 左に一覧、右に拡大画像 */
+  .layout {
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 24px;
+  }
+
+  h1 { font-size: 16px; font-weight: 600; letter-spacing: .05em; margin: 0 0 16px; color: #bbb; }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(var(--columns), var(--icon-size));
+    gap: 10px;
+  }
+  .grid img {
+    width: var(--icon-size);
+    height: var(--icon-size);
+    object-fit: contain;
+    background: #2a2d30;
+    border: 1px solid #444;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: border-color .15s, transform .15s;
+  }
+  .grid img:hover { border-color: #e6c35c; transform: translateY(-2px); }
+
+  /* 右側の表示エリア（スクロールしても画面上部に付いてくる） */
+  .preview {
+    position: sticky;
+    top: 20px;
+    width: var(--popup-width);
+    max-width: calc(100vw - (var(--icon-size) + 10px) * var(--columns) - 80px);
+    aspect-ratio: 4 / 3;
+    border: 1px dashed #444;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #666;
+    font-size: 14px;
+    text-align: center;
+    line-height: 1.8;
+  }
+  .preview img {
+    display: none;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    border-radius: 6px;
+    box-shadow: 0 10px 40px rgba(0,0,0,.6);
+  }
+  .preview.show { border-color: transparent; }
+  .preview.show img { display: block; }
+  .preview.show > span { display: none; }
+
+  /* 表示サイズのバー：画面の中央下に固定（画像の大きさを変えても動かない） */
+  .size-control {
+    position: fixed;
+    left: 50%;
+    bottom: 16px;
+    transform: translateX(-50%);
+    z-index: 20;
+    padding: 10px 18px;
+    background: rgba(20,22,24,.92);
+    border: 1px solid #444;
+    border-radius: 999px;
+    font-size: 13px;
+    color: #bbb;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    white-space: nowrap;
+  }
+  .size-control input { width: 260px; }
+  #sizeValue { display: inline-block; min-width: 4.5em; text-align: right; }   /* 数字の桁が変わってもバーがずれない */
+  .sub { color: #777; font-size: 12px; }
+
+  /* ---------- ページ切り替え（スコープ ⇄ 武器） ---------- */
+  .site-nav {
+    display: flex; justify-content: center; gap: 6px; margin: -16px 0 22px;
+  }
+  .site-nav a {
+    color: #bbb; text-decoration: none; font-size: 14px; padding: 7px 18px;
+    border: 1px solid #444; border-radius: 999px; background: #2a2d30;
+  }
+  .site-nav a:hover { border-color: #e6c35c; color: #fff; }
+  .site-nav a.on { background: #e6c35c; border-color: #e6c35c; color: #111; font-weight: 600; }
+  .site-nav a .sub, .site-nav a.on .sub { color: inherit; opacity: .7; font-size: .85em; }
+</style>
+</head>
+<body>
+<!-- ページ切り替え：リンク先はフォルダ名（scopes / weapons）-->
+<nav class="site-nav"><a href="../index.html" class="">トップ <span class="sub">/ Top</span></a><a href="../scopes/index.html" class="on">スコープ <span class="sub">/ Scopes</span></a><a href="../weapons/index.html" class="">武器 <span class="sub">/ Weapons</span></a></nav>
+<div class="layout">
+
+  <div>
+    <h1>スコープ一覧 <span class="sub">/ Scope List</span></h1>
+
+    <!-- 1行 = スコープ1個。src がアイコン、data-view が使用中の画像、alt/title が名前。
+         増やすときはこの1行をコピーして書き換え -->
+    <div class="grid">
+      <img src="images/icons/01_1-4x.png" data-view="images/views/01.jpg" alt="1/4x" title="1/4x">
+      <img src="images/icons/02_1x-6x_Sight.png" data-view="images/views/02.jpg" alt="1×/6× Sight" title="1×/6× Sight">
+      <img src="images/icons/03_2x.png" data-view="images/views/03.jpg" alt="2x" title="2x">
+      <img src="images/icons/04_2x_Scope.png" data-view="images/views/04.jpg" alt="2x Scope" title="2x Scope">
+      <img src="images/icons/05_3.5x.png" data-view="images/views/05.jpg" alt="3.5x" title="3.5x">
+      <img src="images/icons/06_3.5x_Scope.png" data-view="images/views/06.jpg" alt="3.5x Scope" title="3.5x Scope">
+      <img src="images/icons/07_3x.png" data-view="images/views/07.jpg" alt="3x" title="3x">
+      <img src="images/icons/08_3xHolo.png" data-view="images/views/08.jpg" alt="3xHolo" title="3xHolo">
+      <img src="images/icons/09_4x.png" data-view="images/views/09.jpg" alt="4x" title="4x">
+      <img src="images/icons/10_4xHolo.png" data-view="images/views/10.jpg" alt="4xHolo" title="4xHolo">
+      <img src="images/icons/11_553.png" data-view="images/views/11.jpg" alt="553" title="553">
+      <img src="images/icons/12_818.png" data-view="images/views/12.jpg" alt="818" title="818">
+      <img src="images/icons/13_Arena_Red_Dot.png" data-view="images/views/13.jpg" alt="Arena Red Dot" title="Arena Red Dot">
+      <img src="images/icons/14_Bat_Ear_Holo.png" data-view="images/views/14.jpg" alt="Bat Ear Holo" title="Bat Ear Holo">
+      <img src="images/icons/15_CH.png" data-view="images/views/15.jpg" alt="CH" title="CH">
+      <img src="images/icons/16_CRDS.png" data-view="images/views/16.jpg" alt="CRDS" title="CRDS">
+      <img src="images/icons/17_Comp.Reflex.png" data-view="images/views/17.jpg" alt="Comp.Reflex" title="Comp.Reflex">
+      <img src="images/icons/18_Compact_Sight.png" data-view="images/views/18.jpg" alt="Compact Sight" title="Compact Sight">
+      <img src="images/icons/19_Holo_Scope.png" data-view="images/views/19.jpg" alt="Holo Scope" title="Holo Scope">
+      <img src="images/icons/20_Hybrid_Sight.png" data-view="images/views/20.jpg" alt="Hybrid Sight" title="Hybrid Sight">
+      <img src="images/icons/21_M1_Red_Dot.png" data-view="images/views/21.jpg" alt="M1 Red Dot" title="M1 Red Dot">
+      <img src="images/icons/22_Mod.Red_Dot.png" data-view="images/views/22.jpg" alt="Mod.Red Dot" title="Mod.Red Dot">
+      <img src="images/icons/23_PK_Reflex.png" data-view="images/views/23.jpg" alt="PK用リフレックス" title="PK用リフレックス">
+      <img src="images/icons/24_PZ3.png" data-view="images/views/24.jpg" alt="PZ3" title="PZ3">
+      <img src="images/icons/25_Raised_Red_Dot.png" data-view="images/views/25.jpg" alt="Raised Red Dot" title="Raised Red Dot">
+      <img src="images/icons/26_TRDS.png" data-view="images/views/26.jpg" alt="TRDS" title="TRDS">
+      <img src="images/icons/27_Tri.Reflex.png" data-view="images/views/27.jpg" alt="Tri.Reflex" title="Tri.Reflex">
+      <img src="images/icons/28_Triangle_Sight.png" data-view="images/views/28.jpg" alt="トライアングルサイト" title="トライアングルサイト">
+      <img src="images/icons/29_Simple_Red_Dot.png" data-view="images/views/29.jpg" alt="簡易レッドドット" title="簡易レッドドット">
+    </div>
+
+  </div>
+
+  <!-- 右側の表示エリア -->
+  <div class="preview" id="preview">
+    <span>アイコンにカーソルを合わせると、ここに表示<br><span class="sub">Hover over an icon to preview it here</span></span>
+    <img id="previewImg" alt="">
+  </div>
+
+</div>
+
+<!-- 表示サイズのバー（画面の中央下に固定） -->
+<label class="size-control">
+  表示サイズ <span class="sub">/ Image size</span>
+  <input type="range" id="sizeSlider" min="320" max="1920" step="10">
+  <span id="sizeValue"></span>
+</label>
+
+<script>
+  const preview    = document.getElementById('preview');
+  const previewImg = document.getElementById('previewImg');
+
+  document.querySelectorAll('.grid img').forEach(icon => {
+    // カーソルが乗ったら右側に表示
+    icon.addEventListener('mouseenter', () => {
+      previewImg.src = icon.dataset.view;
+      preview.classList.add('show');
+    });
+    // カーソルが離れたら消す
+    icon.addEventListener('mouseleave', () => preview.classList.remove('show'));
+  });
+
+  // スライダー（CSSの --popup-width を書き換えるだけ）
+  const slider = document.getElementById('sizeSlider');
+  const label  = document.getElementById('sizeValue');
+  const start  = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--popup-width')) || 960;
+  slider.value = start; label.textContent = start + 'px';
+  slider.addEventListener('input', () => {
+    document.documentElement.style.setProperty('--popup-width', slider.value + 'px');
+    label.textContent = slider.value + 'px';
+  });
+</script>
+</body>
+</html>
